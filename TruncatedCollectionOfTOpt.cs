@@ -21,9 +21,9 @@ public class TruncatedCollectionOfTOpt<T> : IReadOnlyList<T>, ITruncatedCollecti
     private TruncatedCollectionOfTOpt(List<T> items, int pageSize, long? totalCount, bool isTruncated)
     {
         _items = items;
+        _isTruncated = isTruncated;
         PageSize = pageSize;
         TotalCount = totalCount;
-        _isTruncated = isTruncated;
     }
 
     #region Constructors for Backward Compatibility
@@ -143,9 +143,9 @@ public class TruncatedCollectionOfTOpt<T> : IReadOnlyList<T>, ITruncatedCollecti
     /// <param name="parameterize">Flag indicating whether constants should be parameterized</param>
     /// <param name="cancellationToken">Cancellation token for async operations. Default is <see cref="default"/></param>
     /// <returns>An instance of the <see cref="TruncatedCollectionOfTOpt{T}"/></returns>
-    public static Task<TruncatedCollectionOfTOpt<T>> CreateAsync(IQueryable<T> source, int pageSize, bool parameterize = false, CancellationToken cancellationToken = default)
+    public static async Task<TruncatedCollectionOfTOpt<T>> CreateAsync(IQueryable<T> source, int pageSize, bool parameterize = false, CancellationToken cancellationToken = default)
     {
-        return CreateAsync(source, pageSize, null, parameterize, cancellationToken);
+        return await CreateAsync(source, pageSize, null, parameterize, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -172,20 +172,9 @@ public class TruncatedCollectionOfTOpt<T> : IReadOnlyList<T>, ITruncatedCollecti
     /// <param name="parameterize">Flag indicating whether constants should be parameterized</param>
     /// <param name="cancellationToken">Cancellation token for async operations. Default is <see cref="default"/></param>
     /// <returns>An instance of the <see cref="TruncatedCollectionOfTOpt{T}"/></returns>
-    public static async Task<TruncatedCollectionOfTOpt<T>> CreateAsync(IQueryable<T> source, int pageSize, long? totalCount = null, bool parameterize = false, CancellationToken cancellationToken = default)
+    public static Task<TruncatedCollectionOfTOpt<T>> CreateAsync(IQueryable<T> source, int pageSize, long? totalCount = null, bool parameterize = false, CancellationToken cancellationToken = default)
     {
-        ValidateArgs(source, pageSize);
-
-        var query = Take(source, pageSize, parameterize);
-        var items = await ToListAsync(query, cancellationToken).ConfigureAwait(false);
-
-        bool isTruncated = items.Count > pageSize;
-        if (isTruncated)
-        {
-            items.RemoveAt(items.Count - 1);
-        }
-
-        return new TruncatedCollectionOfTOpt<T>(items, pageSize, totalCount, isTruncated);
+        return CreateInternalAsync(source, pageSize, totalCount, parameterize, cancellationToken);
     }
 
     #region Core Internal Creation (Sync/Async)
@@ -194,41 +183,19 @@ public class TruncatedCollectionOfTOpt<T> : IReadOnlyList<T>, ITruncatedCollecti
     {
         ValidateArgs(source, pageSize);
 
-        int capacity = pageSize > 0 ? pageSize : (totalCount > 0 ? (totalCount < int.MaxValue ? (int)totalCount : int.MaxValue) : DefaultCapacity);
+        int capacity = pageSize > 0 ? checked(pageSize + 1) : (totalCount > 0 ? (totalCount < int.MaxValue ? (int)totalCount : int.MaxValue) : DefaultCapacity);
+        var items = source.Take(capacity);
 
-        // Use a Span-like approach to minimize allocations if the source is an array or list
-        if (source is IList<T> list)
+        var buffer = new List<T>(capacity);
+        buffer.AddRange(items);
+
+        bool isTruncated = buffer.Count > pageSize;
+        if (isTruncated)
         {
-            capacity = capacity > list.Count ? list.Count : capacity;
-            var buffer = new List<T>(capacity);
-            for (int i = 0; i < capacity; i++)
-            {
-                buffer.Add(list[i]);
-            }
-
-            bool isTruncated = list.Count > pageSize;
-            return new TruncatedCollectionOfTOpt<T>(buffer, pageSize, totalCount, isTruncated);
+            buffer.RemoveAt(buffer.Count - 1);
         }
 
-        // Fallback for other IEnumerable<T> types
-        var bufferFallback = new List<T>(capacity);
-        using var enumerator = source.GetEnumerator();
-        int count = 0;
-
-        while (enumerator.MoveNext())
-        {
-            if (count < capacity)
-            {
-                bufferFallback.Add(enumerator.Current);
-                count++;
-            }
-            else
-            {
-                return new TruncatedCollectionOfTOpt<T>(bufferFallback, pageSize, totalCount, isTruncated: true);
-            }
-        }
-
-        return new TruncatedCollectionOfTOpt<T>(bufferFallback, pageSize, totalCount, isTruncated: false);
+        return new TruncatedCollectionOfTOpt<T>(buffer, pageSize, totalCount, isTruncated: isTruncated);
     }
 
     private static TruncatedCollectionOfTOpt<T> CreateInternal(IQueryable<T> source, int pageSize, bool parameterize = false, long? totalCount = null)
@@ -236,16 +203,32 @@ public class TruncatedCollectionOfTOpt<T> : IReadOnlyList<T>, ITruncatedCollecti
         ValidateArgs(source, pageSize);
 
         int capacity = pageSize > 0 ? pageSize : (totalCount > 0 ? (totalCount < int.MaxValue ? (int)totalCount : int.MaxValue) : DefaultCapacity);
+        var items = Take(source, capacity, parameterize);
 
         var buffer = new List<T>(capacity);
-        using var enumerator = source.GetEnumerator();
-        int count = 0;
+        buffer.AddRange(items);
 
-        while (enumerator.MoveNext())
+        bool isTruncated = buffer.Count > pageSize;
+        if (isTruncated)
+        {
+            buffer.RemoveAt(buffer.Count - 1);
+        }
+        return new TruncatedCollectionOfTOpt<T>(buffer, pageSize, totalCount, isTruncated: isTruncated);
+    }
+
+    private static async Task<TruncatedCollectionOfTOpt<T>> CreateInternalAsync(IAsyncEnumerable<T> source, int pageSize, long? totalCount, CancellationToken cancellationToken)
+    {
+        ValidateArgs(source, pageSize);
+
+        int capacity = pageSize > 0 ? pageSize : (totalCount > 0 ? (totalCount < int.MaxValue ? (int)totalCount : int.MaxValue) : DefaultCapacity);
+        var buffer = new List<T>(capacity);
+
+        int count = 0;
+        await foreach (var item in source.Take(checked(capacity + 1)).WithCancellation(cancellationToken).ConfigureAwait(false))
         {
             if (count < capacity)
             {
-                buffer.Add(enumerator.Current);
+                buffer.Add(item);
                 count++;
             }
             else
@@ -257,7 +240,7 @@ public class TruncatedCollectionOfTOpt<T> : IReadOnlyList<T>, ITruncatedCollecti
         return new TruncatedCollectionOfTOpt<T>(buffer, pageSize, totalCount, isTruncated: false);
     }
 
-    private static async Task<TruncatedCollectionOfTOpt<T>> CreateInternalAsync(IAsyncEnumerable<T> source, int pageSize, long? totalCount, CancellationToken cancellationToken)
+    private static async Task<TruncatedCollectionOfTOpt<T>> CreateInternalAsync(IQueryable<T> source, int pageSize, long? totalCount, bool parameterize, CancellationToken cancellationToken)
     {
         ValidateArgs(source, pageSize);
 
@@ -265,9 +248,9 @@ public class TruncatedCollectionOfTOpt<T> : IReadOnlyList<T>, ITruncatedCollecti
         var buffer = new List<T>(capacity);
 
         int count = 0;
-        await foreach (var item in source.WithCancellation(cancellationToken).ConfigureAwait(false))
+        await foreach (var item in Take(source, pageSize, parameterize).ToAsyncEnumerable().WithCancellation(cancellationToken).ConfigureAwait(false))
         {
-            if (count < pageSize)
+            if (count < capacity)
             {
                 buffer.Add(item);
                 count++;
@@ -284,18 +267,7 @@ public class TruncatedCollectionOfTOpt<T> : IReadOnlyList<T>, ITruncatedCollecti
     private static IQueryable<T> Take(IQueryable<T> source, int pageSize, bool parameterize)
     {
         // This uses existing ExpressionHelpers from OData to apply Take(pageSize + 1)
-        return ExpressionHelpers.Take(source, checked(pageSize + 1), typeof(T), parameterize) as IQueryable<T>;
-    }
-
-    private static ValueTask<List<T>> ToListAsync(IQueryable<T> query, CancellationToken cancellationToken)
-    {
-        if (query is IAsyncEnumerable<T> asyncSource)
-        {
-            return asyncSource.ToListAsync(cancellationToken);
-        }
-
-        // Fallback for in-memory or testing
-        return ValueTask.FromResult(query.ToList());
+        return (IQueryable<T>)ExpressionHelpers.Take(source, checked(pageSize + 1), typeof(T), parameterize);
     }
 
     private static void ValidateArgs(object source, int pageSize)

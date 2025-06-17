@@ -10,7 +10,7 @@ internal static class ExpressionHelpers
         Expression takeQuery = Take(query.Expression, count, type, parameterize);
         var createMethod = ExpressionHelperMethods.CreateQueryGeneric.MakeGenericMethod(type);
 
-        return createMethod.Invoke(query.Provider, new[] { takeQuery }) as IQueryable;
+        return (IQueryable)createMethod.Invoke(query.Provider, new[] { takeQuery });
     }
 
     public static Expression Take(Expression source, int count, Type elementType, bool parameterize)
