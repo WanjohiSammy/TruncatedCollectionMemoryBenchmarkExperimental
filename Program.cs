@@ -1,8 +1,8 @@
 ﻿using BenchmarkDotNet.Running;
 using TruncatedCollectionMemoryBenchmark;
 
-//// Where source is an IQueryable
-//BenchmarkRunner.Run<TruncatedCollectionBenchmarksForIQueryable>();
+// Where source is an IQueryable
+BenchmarkRunner.Run<TruncatedCollectionBenchmarksForIQueryable>();
 
 //// Where source is an IEnumerable
 //BenchmarkRunner.Run<TruncatedCollectionBenchmarksForEnumerable>();
@@ -21,7 +21,11 @@ using TruncatedCollectionMemoryBenchmark;
 //var source = Enumerable.Range(1, 1023);
 //for (int i = 0; i < 25; i++)
 //{
-//    var src = source.Skip(i * 50); 
+//    var src = source.Skip(i * 50);
 //    var truncatedCollection = await TruncatedCollectionOfTOpt<int>.CreateAsync(src.ToAsyncEnumerable(), pageSize);
 //    Console.WriteLine($"i: {i}, Source Count: {src.Count()}, Truncated Collection Count: {truncatedCollection.Count}, IsTruncated: {truncatedCollection.IsTruncated}");
 //}
+
+//var pageSize = 5000;
+//var source = Enumerable.Range(1, 1023).AsQueryable();
+//var truncatedCollection = TruncatedCollectionOfTOpt<int>.Create(source, pageSize);

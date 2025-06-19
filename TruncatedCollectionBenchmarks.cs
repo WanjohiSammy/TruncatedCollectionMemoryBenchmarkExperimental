@@ -37,6 +37,14 @@ public class TruncatedCollectionBenchmarksForEnumerable
         Debug.Assert(collection.IsTruncated, "IsTruncated should be 'True'");
         return collection;
     }
+
+    //[Benchmark]
+    //public object Revised_TruncatedCollection_IEnumerable_BackCompatibility()
+    //{
+    //    var collection = new TruncatedCollectionOfTOpt<int>(_data, PageSize);
+    //    Debug.Assert(collection.IsTruncated, "IsTruncated should be 'True'");
+    //    return collection;
+    //}
 }
 
 [MemoryDiagnoser]
@@ -69,6 +77,14 @@ public class TruncatedCollectionBenchmarksForIQueryable
         Debug.Assert(collection.IsTruncated, "IsTruncated should be 'True'");
         return collection;
     }
+
+    //[Benchmark]
+    //public object Revised_TruncatedCollection_IQueryable_BackCompatibility()
+    //{
+    //    var collection = new TruncatedCollectionOfTOpt<int>(_data, PageSize);
+    //    Debug.Assert(collection.IsTruncated, "IsTruncated should be 'True'");
+    //    return collection;
+    //}
 }
 
 [MemoryDiagnoser]

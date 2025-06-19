@@ -72,6 +72,8 @@ public class TruncatedCollectionOfTOpt<T> : IReadOnlyList<T>, ITruncatedCollecti
 
     #endregion
 
+    #region Static Create Methods
+
     /// <summary>
     /// Create a truncated collection from an <see cref="IEnumerable{T}"/>.
     /// </summary>
@@ -177,7 +179,9 @@ public class TruncatedCollectionOfTOpt<T> : IReadOnlyList<T>, ITruncatedCollecti
         return CreateInternalAsync(source, pageSize, totalCount, parameterize, cancellationToken);
     }
 
-    #region Core Internal Creation (Sync/Async)
+    #endregion
+
+    #region Core Internal (Sync/Async)
 
     private static TruncatedCollectionOfTOpt<T> CreateInternal(IEnumerable<T> source, int pageSize, long? totalCount)
     {
@@ -186,7 +190,8 @@ public class TruncatedCollectionOfTOpt<T> : IReadOnlyList<T>, ITruncatedCollecti
         int capacity = pageSize > 0 ? checked(pageSize + 1) : (totalCount > 0 ? (totalCount < int.MaxValue ? (int)totalCount : int.MaxValue) : DefaultCapacity);
         var items = source.Take(capacity);
 
-        var buffer = new List<T>(capacity);
+        var smallPossibleCount = capacity < items.Count() ? items.Count() : capacity;
+        var buffer = new List<T>(smallPossibleCount);
         buffer.AddRange(items);
 
         bool isTruncated = buffer.Count > pageSize;
@@ -205,15 +210,16 @@ public class TruncatedCollectionOfTOpt<T> : IReadOnlyList<T>, ITruncatedCollecti
         int capacity = pageSize > 0 ? pageSize : (totalCount > 0 ? (totalCount < int.MaxValue ? (int)totalCount : int.MaxValue) : DefaultCapacity);
         var items = Take(source, capacity, parameterize);
 
-        var buffer = new List<T>(capacity);
-        buffer.AddRange(items);
-
-        bool isTruncated = buffer.Count > pageSize;
-        if (isTruncated)
+        int count = 0;
+        List<T> buffer = new List<T>(pageSize);
+        using IEnumerator<T> enumerator = items.GetEnumerator();
+        while (count < pageSize && enumerator.MoveNext())
         {
-            buffer.RemoveAt(buffer.Count - 1);
+            buffer.Add(enumerator.Current);
+            count++;
         }
-        return new TruncatedCollectionOfTOpt<T>(buffer, pageSize, totalCount, isTruncated: isTruncated);
+
+        return new TruncatedCollectionOfTOpt<T>(buffer, pageSize, totalCount, isTruncated: enumerator.MoveNext());
     }
 
     private static async Task<TruncatedCollectionOfTOpt<T>> CreateInternalAsync(IAsyncEnumerable<T> source, int pageSize, long? totalCount, CancellationToken cancellationToken)
@@ -226,7 +232,7 @@ public class TruncatedCollectionOfTOpt<T> : IReadOnlyList<T>, ITruncatedCollecti
         int count = 0;
         await foreach (var item in source.Take(checked(capacity + 1)).WithCancellation(cancellationToken).ConfigureAwait(false))
         {
-            if (count < capacity)
+            if (count < pageSize)
             {
                 buffer.Add(item);
                 count++;
@@ -250,7 +256,7 @@ public class TruncatedCollectionOfTOpt<T> : IReadOnlyList<T>, ITruncatedCollecti
         int count = 0;
         await foreach (var item in Take(source, pageSize, parameterize).ToAsyncEnumerable().WithCancellation(cancellationToken).ConfigureAwait(false))
         {
-            if (count < capacity)
+            if (count < pageSize)
             {
                 buffer.Add(item);
                 count++;
